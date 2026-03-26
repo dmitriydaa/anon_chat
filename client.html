@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Anon Chat</title>
+</head>
+
+<body>
+<h2>Anon Chat ⚡</h2>
+
+<p>Твой ID: <b id="myid"></b></p>
+
+<input id="peer" placeholder="ID собеседника">
+<button onclick="startChat()">Начать чат</button>
+
+<hr>
+
+<textarea id="chat" rows="10" cols="50" readonly></textarea><br><br>
+
+<input id="msg" placeholder="Сообщение">
+<button onclick="send()">Отправить</button>
+
+<script>
+let myId = "user_" + Math.floor(Math.random()*100000);
+document.getElementById("myid").innerText = myId;
+
+let ws = new WebSocket("ws://localhost:8765");
+
+let pc = new RTCPeerConnection({
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+});
+
+let channel;
+let peerId;
+
+// регистрация на сервере
+ws.onopen = () => {
+  ws.send(myId);
+};
+
+// получение сигналов
+ws.onmessage = async (event) => {
+  let data = JSON.parse(event.data);
+
+  if (data.offer) {
+    peerId = data.from;
+
+    await pc.setRemoteDescription(data.offer);
+
+    let answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    ws.send(JSON.stringify({
+      from: myId,
+      to: peerId,
+      answer: pc.localDescription
+    }));
+  }
+
+  if (data.answer) {
+    await pc.setRemoteDescription(data.answer);
+  }
+
+  if (data.candidate) {
+    try {
+      await pc.addIceCandidate(data.candidate);
+    } catch (e) {}
+  }
+};
+
+// ICE кандидаты
+pc.onicecandidate = (e) => {
+  if (e.candidate && peerId) {
+    ws.send(JSON.stringify({
+      from: myId,
+      to: peerId,
+      candidate: e.candidate
+    }));
+  }
+};
+
+// канал данных
+pc.ondatachannel = (e) => {
+  channel = e.channel;
+  setupChannel();
+};
+
+function setupChannel() {
+  channel.onmessage = (e) => {
+    chat.value += "\nДруг: " + e.data;
+  };
+
+  channel.onopen = () => {
+    chat.value += "\n[Соединение установлено]\n";
+  };
+}
+
+// начать чат
+function startChat() {
+  peerId = document.getElementById("peer").value;
+
+  channel = pc.createDataChannel("chat");
+  setupChannel();
+
+  pc.createOffer().then(offer => {
+    return pc.setLocalDescription(offer);
+  }).then(() => {
+    ws.send(JSON.stringify({
+      from: myId,
+      to: peerId,
+      offer: pc.localDescription
+    }));
+  });
+}
+
+// отправка сообщения
+function send() {
+  if (!channel || channel.readyState !== "open") {
+    alert("Соединение не установлено");
+    return;
+  }
+
+  channel.send(msg.value);
+  chat.value += "\nТы: " + msg.value;
+  msg.value = "";
+}
+</script>
+</body>
+</html>
