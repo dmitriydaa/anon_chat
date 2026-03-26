@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <title>Anon Chat</title>
+<link rel="icon" href="icon.jpg.png">
+<style>
+body { font-family: Arial; margin: 20px; }
+textarea { width: 100%; }
+input { width: 80%; }
+button { width: 18%; }
+</style>
 </head>
 
 <body>
@@ -15,7 +22,7 @@
 
 <hr>
 
-<textarea id="chat" rows="10" cols="50" readonly></textarea><br><br>
+<textarea id="chat" rows="10" readonly></textarea><br><br>
 
 <input id="msg" placeholder="Сообщение">
 <button onclick="send()">Отправить</button>
@@ -33,93 +40,45 @@ let pc = new RTCPeerConnection({
 let channel;
 let peerId;
 
-// регистрация на сервере
-ws.onopen = () => {
-  ws.send(myId);
-};
+ws.onopen = () => { ws.send(myId); };
 
-// получение сигналов
 ws.onmessage = async (event) => {
   let data = JSON.parse(event.data);
 
   if (data.offer) {
     peerId = data.from;
-
     await pc.setRemoteDescription(data.offer);
-
     let answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
-    ws.send(JSON.stringify({
-      from: myId,
-      to: peerId,
-      answer: pc.localDescription
-    }));
+    ws.send(JSON.stringify({ from: myId, to: peerId, answer: pc.localDescription }));
   }
 
-  if (data.answer) {
-    await pc.setRemoteDescription(data.answer);
-  }
-
-  if (data.candidate) {
-    try {
-      await pc.addIceCandidate(data.candidate);
-    } catch (e) {}
-  }
+  if (data.answer) await pc.setRemoteDescription(data.answer);
+  if (data.candidate) { try { await pc.addIceCandidate(data.candidate); } catch(e){} }
 };
 
-// ICE кандидаты
 pc.onicecandidate = (e) => {
-  if (e.candidate && peerId) {
-    ws.send(JSON.stringify({
-      from: myId,
-      to: peerId,
-      candidate: e.candidate
-    }));
-  }
+  if (e.candidate && peerId) ws.send(JSON.stringify({ from: myId, to: peerId, candidate: e.candidate }));
 };
 
-// канал данных
-pc.ondatachannel = (e) => {
-  channel = e.channel;
-  setupChannel();
-};
+pc.ondatachannel = (e) => { channel = e.channel; setupChannel(); };
 
 function setupChannel() {
-  channel.onmessage = (e) => {
-    chat.value += "\nДруг: " + e.data;
-  };
-
-  channel.onopen = () => {
-    chat.value += "\n[Соединение установлено]\n";
-  };
+  channel.onmessage = (e) => { chat.value += "\nДруг: " + e.data; };
+  channel.onopen = () => { chat.value += "\n[Соединение установлено]\n"; };
 }
 
-// начать чат
 function startChat() {
   peerId = document.getElementById("peer").value;
-
   channel = pc.createDataChannel("chat");
   setupChannel();
-
-  pc.createOffer().then(offer => {
-    return pc.setLocalDescription(offer);
-  }).then(() => {
-    ws.send(JSON.stringify({
-      from: myId,
-      to: peerId,
-      offer: pc.localDescription
-    }));
+  pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+    ws.send(JSON.stringify({ from: myId, to: peerId, offer: pc.localDescription }));
   });
 }
 
-// отправка сообщения
 function send() {
-  if (!channel || channel.readyState !== "open") {
-    alert("Соединение не установлено");
-    return;
-  }
-
+  if (!channel || channel.readyState !== "open") { alert("Соединение не установлено"); return; }
   channel.send(msg.value);
   chat.value += "\nТы: " + msg.value;
   msg.value = "";
